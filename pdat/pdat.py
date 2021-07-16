@@ -166,7 +166,7 @@ class psrfits(hdu.hdulist.HDUList):
         self.write_PrimaryHDU_info_dict(self.fits_template[0],self[0])
         self.set_hdr_from_draft('PRIMARY')
         for hdr in self.draft_hdr_keys[1:]:
-            self.write_table(HDUs[hdr],extname=hdr, extver=1) # need to fix this
+            self.write_table(HDUs[hdr],extname=hdr, extver=1) # NEED TO FIX THIS
                              # header = self.draft_hdrs[hdr])
             if hdr_from_draft: self.set_hdr_from_draft(hdr)
         self.written = True
