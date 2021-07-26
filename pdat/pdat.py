@@ -171,6 +171,99 @@ class psrfits(pp.Archive):
         else:
             raise ValueError('Cannot save a file without data.')
 
+    def save(self, filename):
+        """Save the file to a new FITS file"""
+
+        primaryhdu = pyfits.PrimaryHDU(header=self.header) #need to make alterations to header
+        hdulist = pyfits.HDUList(primaryhdu)
+
+        if self.history is not None:
+            cols = []
+            for name in self.history.namelist:
+                fmt, unit, array = self.history.dictionary[name]
+                #print name, fmt, unit, array
+                col = pyfits.Column(name=name, format=fmt, unit=unit, array=array)
+                cols.append(col)
+            historyhdr = pyfits.Header()
+            for key in self.history.headerlist:
+                historyhdr[key] = self.history.header[key]
+            historyhdu = pyfits.BinTableHDU.from_columns(cols, name='HISTORY', header=historyhdr)
+            hdulist.append(historyhdu)
+            # Need to add in PyPulse changes into a HISTORY
+        #else: #else start a HISTORY table
+
+        if self.params is not None:
+            #PARAM and not PSRPARAM?:
+            cols = [pyfits.Column(name='PSRPARAM', format='128A', array=self.params.filename)]
+            paramhdr = pyfits.Header()
+            for key in self.paramheaderlist:
+                paramhdr[key] = self.paramheader[key]
+            paramhdu = pyfits.BinTableHDU.from_columns(cols, name='PSRPARAM')
+            hdulist.append(paramhdu)
+            # Need to include mode for PSREPHEM
+
+        if self.polyco is not None:
+            cols = []
+            for name in self.polyco.namelist:
+                fmt, unit, array = self.polyco.dictionary[name]
+                #print name, fmt, unit, array
+                col = pyfits.Column(name=name, format=fmt, unit=unit, array=array)
+                cols.append(col)
+            polycohdr = pyfits.Header()
+            for key in self.polyco.headerlist:
+                polycohdr[key] = self.polyco.header[key]
+            polycohdu = pyfits.BinTableHDU.from_columns(cols, name='POLYCO', header=polycohdr)
+            hdulist.append(polycohdu)
+
+        if len(self.tables) > 0:
+            for table in self.tables:
+                hdulist.append(table)
+
+        cols = []
+        for name in self.subintinfolist:
+            fmt, unit, array = self.subintinfo[name]
+            col = pyfits.Column(name=name, format=fmt, unit=unit, array=array)
+            cols.append(col)
+            # finish writing out SUBINT!
+
+        cols.append(pyfits.Column(name='DAT_FREQ', format='%iE'%np.shape(self.freq)[1], unit='MHz', array=self.freq)) #correct size? check units?
+        cols.append(pyfits.Column(name='DAT_WTS', format='%iE'%np.shape(self.weights)[1], array=self.weights)) #call getWeights()
+
+        nsubint, npol, nchan, nbin = self.shape(squeeze=False)
+
+        DAT_OFFS = np.zeros((nsubint, npol*nchan), dtype=np.float32)
+        DAT_SCL = np.zeros((nsubint, npol*nchan), dtype=np.float32)
+        DATA = self.getData(squeeze=False, weight=False)
+        print(DATA.shape)
+        saveDATA = np.zeros(self.shape(squeeze=False), dtype=np.int16)
+        # Following Base/Formats/PSRFITS/unload_DigitiserCounts.C
+        for i in xrange(nsubint):
+            for j in xrange(npol):
+                jnchan = j*nchan
+                for k in xrange(nchan):
+                    MIN = np.min(DATA[i, j, k, :])
+                    MAX = np.max(DATA[i, j, k, :])
+                    RANGE = MAX - MIN
+                    if MAX == 0 and MIN == 0:
+                        DAT_SCL[i, jnchan+k] = 1.0
+                    else:
+                        DAT_OFFS[i, jnchan+k] = 0.5*(MIN+MAX)
+                        DAT_SCL[i, jnchan+k] = (MAX-MIN)/32766.0 #this is slightly off the original value? Results in slight change of data
+
+                    saveDATA[i, j, k, :] = np.floor((DATA[i, j, k, :] - DAT_OFFS[i, jnchan+k])/DAT_SCL[i, jnchan+k] + 0.5) #why +0.5?
+
+        cols.append(pyfits.Column(name='DAT_OFFS', format='%iE'%np.size(DAT_OFFS[0]), array=DAT_OFFS))
+        cols.append(pyfits.Column(name='DAT_SCL', format='%iE'%np.size(DAT_SCL[0]), array=DAT_SCL))
+        cols.append(pyfits.Column(name='DATA', format='%iI'%np.size(saveDATA[0]), array=saveDATA, unit='Jy', dim='(%s,%s,%s)'%(nbin, nchan, npol))) #replace the unit here
+
+        subinthdr = pyfits.Header()
+        for key in self.subintheaderlist:
+            subinthdr[key] = self.subintheader[key]
+        subinthdu = pyfits.BinTableHDU.from_columns(cols, name='SUBINT', header=subinthdr)
+        hdulist.append(subinthdu)
+
+        hdulist.writeto(filename, clobber=True)#clobber=True?
+
     def close(self):
         if self.verbose:
             t0 = time.time()
