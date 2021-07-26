@@ -96,21 +96,23 @@ class psrfits(pp.Archive):
         self.nchan = self.history.getLatest("NCHAN")
         self.nbin = self.history.getLatest("NBIN")
 
-    def initialize_data(self, dims=None):
-        """
-        Order for Dims: NSUBINT, NPOL, NCHAN, NBIN
-        """
-        # dims: nsubint, npol, nchan, nbin
+    def initialize_data(self, obs_mode = 'PSR'):
+
         self.written = True
-        if dims is None:
+        if obs_mode == 'PSR':
             self._data = np.zeros((self.nsubint, self.npol, self.nchan, self.nbin))
             self.freq = np.zeros((self.nsubint, self.nchan))
             self.weights = np.ones((self.nsubint, self.nchan))
             self.weighted_data = self._data * self.weights[:, None, :, None]/np.nansum(self.weights)
-        else: # NOT consistent with rest of file :(
-            self._data = np.zeros((dims[0], dims[1], dims[2], dims[3]))
-            self.freq = np.zeros((dims[0], dims[2]))
-            self.weights = np.ones((dims[0], dims[2]))
+        elif obs_mode == 'SEARCH':
+            self._data = np.zeros((self.nsubint, self.npol, self.nchan, self.nbin))
+            self.freq = np.zeros((self.nsubint, self.nchan))
+            self.weights = np.ones((self.nsubint, self.nchan))
+            self.weighted_data = self._data * self.weights[:, None, :, None]/np.nansum(self.weights)
+        elif obs_mode == 'CAL':
+            self._data = np.zeros((self.nsubint, self.npol, self.nchan, self.nbin))
+            self.freq = np.zeros((self.nsubint, self.nchan))
+            self.weights = np.ones((self.nsubint, self.nchan))
             self.weighted_data = self._data * self.weights[:, None, :, None]/np.nansum(self.weights)
 
     def set_draft_header(self, ext_name, hdr_dict):
@@ -163,6 +165,7 @@ class psrfits(pp.Archive):
             self.subintheader[name] = new_value
 
     def write_psrfits(self, save_path):
+
         if self.written:
             self.save(save_path)
         else:
@@ -244,6 +247,12 @@ class psrfits(pp.Archive):
         #Make a dtype list with defined dimensions and data type
         self._bytes_per_datum = np.dtype(data_dtype).itemsize
 
+        self.nsubint = nsubint
+        self.nbin = nbin
+        self.nchan = nchan
+        self.npol = npol
+        self.nsblk = nsblk
+
         if obs_mode is None: obs_mode = self.obs_mode
 
         if obs_mode.upper() == 'SEARCH':
@@ -297,6 +306,7 @@ class psrfits(pp.Archive):
 
         elif (obs_mode.upper() == 'PSR' or obs_mode.upper() == 'CAL'):
 
+
             if nsblk != 1:
                 err_msg = 'NSBLK (set to {0}) parameter not set '.format(nsblk)
                 err_msg += 'to correct value '
@@ -332,8 +342,7 @@ class psrfits(pp.Archive):
             tdim20 = '('+str(nbin)+', '+str(nchan)+', ' + str(npol)+')'
             self.replace_FITS_Record('SUBINT','TDIM20', tdim20)
             self.replace_FITS_Record('SUBINT','TDIM21', tdim20)
-
-            self.initialize_data(dims=[nsubint, npol,nchan,nbin])
+            self.initialize_data()
 
             self.single_subint_floats=['TSUBINT','OFFS_SUB',
                                        'LST_SUB','RA_SUB',
