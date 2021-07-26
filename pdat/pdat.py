@@ -8,6 +8,7 @@ from __future__ import (absolute_import, division,
 import numpy as np
 import pypulse as pp
 import astropy.io.fits as fits
+import astropy.io.fits as pyfits
 from astropy.io.fits import hdu
 import collections, os, sys
 import datetime
