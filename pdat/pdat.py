@@ -231,7 +231,7 @@ class psrfits(pp.Archive):
         cols.append(pyfits.Column(name='DAT_WTS', format='%iE'%np.shape(self.weights)[1], array=self.weights)) #call getWeights()
 
         nsubint, npol, nchan, nbin = self.shape(squeeze=False)
-
+        print(nsubint, npol, nchan, nbin)
         DAT_OFFS = np.zeros((nsubint, npol*nchan), dtype=np.float32)
         DAT_SCL = np.zeros((nsubint, npol*nchan), dtype=np.float32)
         DATA = self.getData(squeeze=False, weight=False)
