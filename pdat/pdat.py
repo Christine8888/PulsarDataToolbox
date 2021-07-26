@@ -17,6 +17,14 @@ import six
 import gc as g
 import time
 
+if sys.version_info.major == 2:
+    fmap = map
+elif sys.version_info.major == 3:
+    fmap = lambda x, *args: list(map(x, *args))
+    xrange = range
+
+
+
 #package_path = os.path.dirname(__file__)
 #template_dir = os.path.join(package_path, './templates/')
 
@@ -100,21 +108,15 @@ class psrfits(pp.Archive):
     def initialize_data(self, obs_mode = 'PSR'):
 
         self.written = True
-        if obs_mode == 'PSR':
+        if (obs_mode == 'PSR' or obs_mode == 'CAL'):
             self._data = np.zeros((self.nsubint, self.npol, self.nchan, self.nbin))
-            self.freq = np.zeros((self.nsubint, self.nchan))
-            self.weights = np.ones((self.nsubint, self.nchan))
-            self.weighted_data = self._data * self.weights[:, None, :, None]/np.nansum(self.weights)
+
         elif obs_mode == 'SEARCH':
-            self._data = np.zeros((self.nsubint, self.npol, self.nchan, self.nbin))
-            self.freq = np.zeros((self.nsubint, self.nchan))
-            self.weights = np.ones((self.nsubint, self.nchan))
-            self.weighted_data = self._data * self.weights[:, None, :, None]/np.nansum(self.weights)
-        elif obs_mode == 'CAL':
-            self._data = np.zeros((self.nsubint, self.npol, self.nchan, self.nbin))
-            self.freq = np.zeros((self.nsubint, self.nchan))
-            self.weights = np.ones((self.nsubint, self.nchan))
-            self.weighted_data = self._data * self.weights[:, None, :, None]/np.nansum(self.weights)
+            self._data = np.zeros((self.nsubint, self.nsblk, self.npol, self.nchan, self.nbin))
+
+        self.freq = np.zeros((self.nsubint, self.nchan))
+        self.weights = np.ones((self.nsubint, self.nchan))
+        self.weighted_data = self._data * self.weights[:, None, :, None]/np.nansum(self.weights)
 
     def set_draft_header(self, ext_name, hdr_dict):
         """
@@ -134,6 +136,22 @@ class psrfits(pp.Archive):
         """
         for key in hdr_dict.keys():
             self.replace_FITS_Record(ext_name,key,hdr_dict[key])
+
+    def replace_FITS_tuple(self, hdr, name, new_value):
+        if hdr == "HISTORY":
+            temp = list(self.history.dictionary[name])
+            temp[-1] = [new_value]
+            self.history.dictionary[name] = temp
+        elif hdr == "POLYCO":
+            temp = list(self.polyco.dictionary[name])
+            temp[-1] = [new_value]
+            self.polyco.dictionary[name] = temp
+
+        elif hdr == "SUBINT":
+            temp = list(self.subintinfo[name])
+            temp[-1] = new_value
+            self.subintinfo[name] = temp
+
 
     def replace_FITS_Record(self, hdr, name, new_value):
         """
@@ -171,6 +189,115 @@ class psrfits(pp.Archive):
             self.save(save_path)
         else:
             raise ValueError('Cannot save a file without data.')
+    def save(self, filename):
+        """Save the file to a new FITS file"""
+
+        primaryhdu = pyfits.PrimaryHDU(header=self.header) #need to make alterations to header
+        hdulist = pyfits.HDUList(primaryhdu)
+
+        if self.history is not None:
+            cols = []
+            for name in self.history.namelist:
+                fmt, unit, array = self.history.dictionary[name]
+                #print name, fmt, unit, array
+                col = pyfits.Column(name=name, format=fmt, unit=unit, array=array)
+                cols.append(col)
+            historyhdr = pyfits.Header()
+            for key in self.history.headerlist:
+                historyhdr[key] = self.history.header[key]
+            historyhdu = pyfits.BinTableHDU.from_columns(cols, name='HISTORY', header=historyhdr)
+            hdulist.append(historyhdu)
+            # Need to add in PyPulse changes into a HISTORY
+        #else: #else start a HISTORY table
+
+        if self.params is not None:
+            #PARAM and not PSRPARAM?:
+            cols = [pyfits.Column(name='PSRPARAM', format='128A', array=self.params.filename)]
+            paramhdr = pyfits.Header()
+            for key in self.paramheaderlist:
+                paramhdr[key] = self.paramheader[key]
+            paramhdu = pyfits.BinTableHDU.from_columns(cols, name='PSRPARAM')
+            hdulist.append(paramhdu)
+            # Need to include mode for PSREPHEM
+
+        if self.polyco is not None:
+            cols = []
+            for name in self.polyco.namelist:
+                fmt, unit, array = self.polyco.dictionary[name]
+                #print name, fmt, unit, array
+                col = pyfits.Column(name=name, format=fmt, unit=unit, array=array)
+                cols.append(col)
+            polycohdr = pyfits.Header()
+            for key in self.polyco.headerlist:
+                polycohdr[key] = self.polyco.header[key]
+            polycohdu = pyfits.BinTableHDU.from_columns(cols, name='POLYCO', header=polycohdr)
+            hdulist.append(polycohdu)
+
+        if len(self.tables) > 0:
+            for table in self.tables:
+                hdulist.append(table)
+
+        cols = []
+        for name in self.subintinfolist:
+            fmt, unit, array = self.subintinfo[name]
+            col = pyfits.Column(name=name, format=fmt, unit=unit, array=array)
+            cols.append(col)
+            # finish writing out SUBINT!
+        # print(self.freq.shape)
+        # print(self.weights.shape)
+        cols.append(pyfits.Column(name='DAT_FREQ', format='%iE'%np.shape(self.freq)[1], unit='MHz', array=self.freq)) #correct size? check units?
+        cols.append(pyfits.Column(name='DAT_WTS', format='%iE'%np.shape(self.weights)[1], array=self.weights)) #call getWeights()
+
+        nsubint, npol, nchan, nbin = self.shape(squeeze=False)
+
+        DAT_OFFS = np.zeros((nsubint, npol*nchan), dtype=np.float32)
+        DAT_SCL = np.zeros((nsubint, npol*nchan), dtype=np.float32)
+        DATA = self.getData(squeeze=False, weight=False)
+        saveDATA = np.zeros(self.shape(squeeze=False), dtype=np.int16)
+        # print(saveDATA.shape)
+        # Following Base/Formats/PSRFITS/unload_DigitiserCounts.C
+
+        for i in xrange(nsubint):
+            for j in xrange(npol):
+                jnchan = j*nchan
+                for k in xrange(nchan):
+                    MIN = np.min(DATA[i, j, k, :])
+                    MAX = np.max(DATA[i, j, k, :])
+                    RANGE = MAX - MIN
+                    if MAX == 0 and MIN == 0:
+                        DAT_SCL[i, jnchan+k] = 1.0
+                    else:
+                        DAT_OFFS[i, jnchan+k] = 0.5*(MIN+MAX)
+                        DAT_SCL[i, jnchan+k] = (MAX-MIN)/32766.0 #this is slightly off the original value? Results in slight change of data
+
+                    saveDATA[i, j, k, :] = np.floor((DATA[i, j, k, :] - DAT_OFFS[i, jnchan+k])/DAT_SCL[i, jnchan+k] + 0.5) #why +0.5?
+
+        # print(DAT_OFFS.shape)
+        # print(DAT_SCL.shape)
+        # print(DATA.shape)
+        # print(self.nsubint, nsubint)
+        offs_col = pyfits.Column(name='DAT_OFFS', format='%iE'%np.size(DAT_OFFS[0]), array=DAT_OFFS)
+        cols.append(offs_col)
+        # print(offs_col.array.shape)
+        scl_col = pyfits.Column(name='DAT_SCL', format='%iE'%np.size(DAT_SCL[0]), array=DAT_SCL)
+        cols.append(scl_col)
+        # print(scl_col.array.shape)
+        dat_col = pyfits.Column(name='DATA', format='%iI'%np.size(saveDATA[0]), array=saveDATA, unit='Jy', dim='(%s,%s,%s)'%(nbin, nchan, npol))
+        cols.append(dat_col) #replace the unit here
+        # print(dat_col.array.shape)
+        # print(nbin, nchan, npol)
+        # print(saveDATA.shape)
+
+        subinthdr = pyfits.Header()
+        for key in self.subintheaderlist:
+            # print(key)
+            subinthdr[key] = self.subintheader[key]
+        subinthdu = pyfits.BinTableHDU.from_columns(cols, name='SUBINT', header=subinthdr)
+        hdulist.append(subinthdu)
+        # print(subinthdr)
+        # print(subinthdu.data['DATA'].shape)
+        hdulist.writeto(filename, clobber=True)#clobber=True?
+        return subinthdr, subinthdu
 
     def close(self):
         if self.verbose:
@@ -278,6 +405,28 @@ class psrfits(pp.Archive):
             self.replace_FITS_Record('SUBINT','TFORM14',str(nchan)+'E')
             self.replace_FITS_Record('SUBINT','TFORM15',str(nchan*npol)+'E')
             self.replace_FITS_Record('SUBINT','TFORM16',str(nchan*npol)+'E')
+            self.replace_FITS_tuple('HISTORY', 'NCHAN', nchan)
+            self.replace_FITS_tuple('HISTORY', 'NSUB', nsubint)
+            self.replace_FITS_tuple('HISTORY', 'NPOL', npol)
+            self.replace_FITS_tuple('HISTORY', 'NBIN', nbin)
+            self.replace_FITS_tuple('HISTORY', 'NBIN_PRD', nbin)
+
+            self.replace_FITS_tuple('SUBINT', 'INDEXVAL', self.subintinfo['INDEXVAL'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'PERIOD', self.subintinfo['PERIOD'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'TSUBINT', self.subintinfo['TSUBINT'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'OFFS_SUB', self.subintinfo['OFFS_SUB'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'LST_SUB', self.subintinfo['LST_SUB'][-1][0:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'RA_SUB', self.subintinfo['RA_SUB'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'DEC_SUB', self.subintinfo['DEC_SUB'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'GLON_SUB', self.subintinfo['GLON_SUB'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'GLAT_SUB', self.subintinfo['GLAT_SUB'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'FD_ANG', self.subintinfo['FD_ANG'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'POS_ANG', self.subintinfo['POS_ANG'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'PAR_ANG', self.subintinfo['PAR_ANG'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'TEL_AZ', self.subintinfo['TEL_AZ'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'TEL_ZEN', self.subintinfo['TEL_ZEN'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'AUX_DM', self.subintinfo['AUX_DM'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'AUX_RM', self.subintinfo['AUX_RM'][-1][:nsubint])
 
             #Calculate Number of Bytes in each row's DATA array
             tform17 = nbin*nchan*npol*nsblk
@@ -288,14 +437,14 @@ class psrfits(pp.Archive):
 
             naxis1 = tform17*self._bytes_per_datum + 2*nchan*4 + 2*nchan*npol*4
             naxis1 += bytes_in_lone_floats
-            self.replace_FITS_Record('SUBINT','NAXIS1', str(naxis1))
+            self.replace_FITS_Record('SUBINT','NAXIS1', naxis1)
 
             # Set the TDIM17 string-tuple
             tdim17 = '('+str(nbin)+', '+str(nchan)+', '
             tdim17 += str(npol)+', '+str(nsblk)+')'
             self.replace_FITS_Record('SUBINT','TDIM17', tdim17)
 
-            # self.initialize_data(dims=[nbin,nchan,npol,nsblk])
+            self.initialize_data(obs_mode = obs_mode)
             # FIGURE OUT DATA FORMATS
 
             self.single_subint_floats=['TSUBINT','OFFS_SUB',
@@ -328,7 +477,29 @@ class psrfits(pp.Archive):
             self.replace_FITS_Record('SUBINT','TFORM17',str(nchan)+'E')
             self.replace_FITS_Record('SUBINT','TFORM18',str(nchan*npol)+'E')
             self.replace_FITS_Record('SUBINT','TFORM19',str(nchan*npol)+'E')
+            self.replace_FITS_tuple('HISTORY', 'NCHAN', nchan)
+            self.replace_FITS_tuple('HISTORY', 'NSUB', nsubint)
+            self.replace_FITS_tuple('HISTORY', 'NPOL', npol)
+            self.replace_FITS_tuple('HISTORY', 'NBIN', nbin)
+            self.replace_FITS_tuple('HISTORY', 'NBIN_PRD', nbin) # MAY NEED TO CHANGE
 
+
+            self.replace_FITS_tuple('SUBINT', 'INDEXVAL', self.subintinfo['INDEXVAL'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'TSUBINT', self.subintinfo['TSUBINT'][-1][:nsubint])
+
+            self.replace_FITS_tuple('SUBINT', 'OFFS_SUB', self.subintinfo['OFFS_SUB'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'LST_SUB', self.subintinfo['LST_SUB'][-1][0:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'RA_SUB', self.subintinfo['RA_SUB'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'DEC_SUB', self.subintinfo['DEC_SUB'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'GLON_SUB', self.subintinfo['GLON_SUB'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'GLAT_SUB', self.subintinfo['GLAT_SUB'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'FD_ANG', self.subintinfo['FD_ANG'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'POS_ANG', self.subintinfo['POS_ANG'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'PAR_ANG', self.subintinfo['PAR_ANG'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'TEL_AZ', self.subintinfo['TEL_AZ'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'TEL_ZEN', self.subintinfo['TEL_ZEN'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'AUX_DM', self.subintinfo['AUX_DM'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'AUX_RM', self.subintinfo['AUX_RM'][-1][:nsubint])
             #Calculate Number of Bytes in each row's DATA array
             tform20 = nbin*nchan*npol
             self.replace_FITS_Record('SUBINT','TFORM20',str(tform20)+'I')
@@ -339,13 +510,13 @@ class psrfits(pp.Archive):
             #This is the number of bytes in TSUBINT, OFFS_SUB, LST_SUB, etc.
             naxis1 = tform20*self._bytes_per_datum + nchan*8 + nchan*4
             naxis1 += 2*nchan*npol*4 + bytes_in_lone_floats
-            self.replace_FITS_Record('SUBINT','NAXIS1', str(naxis1))
+            self.replace_FITS_Record('SUBINT','NAXIS1', naxis1)
 
             # Set the TDIM20 string-tuple
             tdim20 = '('+str(nbin)+', '+str(nchan)+', ' + str(npol)+')'
             self.replace_FITS_Record('SUBINT','TDIM20', tdim20)
             self.replace_FITS_Record('SUBINT','TDIM21', tdim20)
-            self.initialize_data()
+            self.initialize_data(obs_mode = obs_mode)
 
             self.single_subint_floats=['TSUBINT','OFFS_SUB',
                                        'LST_SUB','RA_SUB',
