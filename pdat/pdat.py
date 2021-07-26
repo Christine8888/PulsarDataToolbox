@@ -334,6 +334,8 @@ class psrfits(pp.Archive):
             self.replace_FITS_Record('SUBINT','TFORM20',str(tform20)+'I')
             bytes_in_lone_floats = 10*8 + 5*4
 
+
+
             #This is the number of bytes in TSUBINT, OFFS_SUB, LST_SUB, etc.
             naxis1 = tform20*self._bytes_per_datum + nchan*8 + nchan*4
             naxis1 += 2*nchan*npol*4 + bytes_in_lone_floats
