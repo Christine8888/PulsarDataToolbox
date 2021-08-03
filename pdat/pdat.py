@@ -7,7 +7,6 @@ from __future__ import (absolute_import, division,
                         print_function, unicode_literals)
 import numpy as np
 import pypulse as pp
-import astropy.io.fits as fits
 import astropy.io.fits as pyfits
 from astropy.io.fits import hdu
 import collections, os, sys
@@ -105,6 +104,34 @@ class psrfits(pp.Archive):
         self.nchan = self.history.getLatest("NCHAN")
         self.nbin = self.history.getLatest("NBIN")
 
+    def __getitem__(self, arg, header=True):
+        if arg == "PRIMARY":
+            return self.header
+
+        elif arg == "HISTORY":
+            if header:
+                return self.history.header
+            return self.history
+
+        elif arg == "POLYCO":
+            if header:
+                return self.polyco.header
+            return self.polyco
+
+        elif arg == "PSRPARAM":
+            if header:
+                return self.paramheader
+            return self.params
+
+        elif arg == "SUBINT":
+            if header:
+                return self.subintheader
+            return self.subintinfo # could also return data
+
+        else:
+            msg = f'{arg} is not currently supported'
+            raise ValueError(msg)
+
     def initialize_data(self, obs_mode = 'PSR'):
 
         self.written = True
@@ -136,6 +163,94 @@ class psrfits(pp.Archive):
         """
         for key in hdr_dict.keys():
             self.replace_FITS_Record(ext_name,key,hdr_dict[key])
+
+    def append_from_file(self,path,table='all'):
+        """
+        Method to append more subintegrations to a PSRFITS file from other
+        PSRFITS files.
+        Note: Tables are appended directly to the original file. Make a copy
+            before copying if you are unsure about appending. The array must
+            match the columns (in the numpy.recarray sense) of the existing
+            PSRFITS file.
+
+        Parameters
+        ----------
+
+        path : str
+            Path to the new PSRFITS file to be appended.
+
+        table : list
+            List of BinTable HDU headers to append from file. Defaults to
+                appending all secondary BinTables.
+                ['HISTORY','PSRPARAM','POLYCO','SUBINT']
+        """
+        PF2A = pyfits.open(path)
+
+        if table=='all':
+            PF2A_hdrs = []
+            for ii in range(self.n_hdrs):
+                hdr_key = PF2A[ii].name
+                PF2A_hdrs.append(hdr_key)
+
+            table=PF2A_hdrs
+
+        if self.verbose:
+            print("Appending from: {}".format(table))
+
+
+        if "HISTORY" in table:
+            for key in PF2A["HISTORY"].data.dtype.names:
+                #if key in self.history.dictionary.keys():
+                temp_data = PF2A["HISTORY"].data[key][0]
+                temp_tuple = list(self.history.dictionary[key])
+                temp_tuple[-1] = temp_data # REPLACING, NOT APPENDING
+                self.history.dictionary[key] = temp_tuple
+
+
+        if "POLYCO" in table:
+            for key in PF2A["POLYCO"].data.dtype.names:
+                #if key in self.polyco.dictionary.keys():
+                temp_data = PF2A["POLYCO"].data[key][0]
+                temp_tuple = list(self.polyco.dictionary[key])
+                temp_tuple[-1] = temp_data # REPLACING, NOT APPENDING
+                self.polyco.dictionary[key] = temp_tuple
+
+        if "PSRPARAM" in table:
+            size = int(PF2A['PSRPARAM'].data.shape[0])
+            keys = [PF2A['PSRPARAM'].data[i][0].split(' ')[0] for i in range(size)]
+            # print(keys)
+            for key in keys:
+                temp_data = PF2A['PSRPARAM'].data[list_arg(keys, key)][0].split(' ')[-1]
+                if key in self.params.paramnames:
+                    index = list_arg(self.params.paramnames, key)
+                    self.params.paramlist[index].value = temp_data
+
+        if "SUBINT" in table:
+            for key in PF2A['SUBINT'].data.dtype.names[:-5]: # NOT currently replacing any data. if no need to replace data at all, could just use Archive object
+                temp_data = PF2A['SUBINT'].data[key]
+                #if key in test.subintinfo.keys():
+                temp_tuple = list(self.subintinfo[key])
+                temp_tuple[-1] = temp_data # REPLACING, NOT APPENDING
+                self.subintinfo[key] = temp_tuple
+                self.replace_subint_info(self.nsubint) # needs to adjust to be the right subint size if this is too small
+
+
+    def replace_subint_info(self, nsubint):
+        self.replace_FITS_tuple('SUBINT', 'INDEXVAL', self.subintinfo['INDEXVAL'][-1][:nsubint])
+        self.replace_FITS_tuple('SUBINT', 'TSUBINT', self.subintinfo['TSUBINT'][-1][:nsubint])
+        self.replace_FITS_tuple('SUBINT', 'OFFS_SUB', self.subintinfo['OFFS_SUB'][-1][:nsubint])
+        self.replace_FITS_tuple('SUBINT', 'LST_SUB', self.subintinfo['LST_SUB'][-1][:nsubint])
+        self.replace_FITS_tuple('SUBINT', 'RA_SUB', self.subintinfo['RA_SUB'][-1][:nsubint])
+        self.replace_FITS_tuple('SUBINT', 'DEC_SUB', self.subintinfo['DEC_SUB'][-1][:nsubint])
+        self.replace_FITS_tuple('SUBINT', 'GLON_SUB', self.subintinfo['GLON_SUB'][-1][:nsubint])
+        self.replace_FITS_tuple('SUBINT', 'GLAT_SUB', self.subintinfo['GLAT_SUB'][-1][:nsubint])
+        self.replace_FITS_tuple('SUBINT', 'FD_ANG', self.subintinfo['FD_ANG'][-1][:nsubint])
+        self.replace_FITS_tuple('SUBINT', 'POS_ANG', self.subintinfo['POS_ANG'][-1][:nsubint])
+        self.replace_FITS_tuple('SUBINT', 'PAR_ANG', self.subintinfo['PAR_ANG'][-1][:nsubint])
+        self.replace_FITS_tuple('SUBINT', 'TEL_AZ', self.subintinfo['TEL_AZ'][-1][:nsubint])
+        self.replace_FITS_tuple('SUBINT', 'TEL_ZEN', self.subintinfo['TEL_ZEN'][-1][:nsubint])
+        self.replace_FITS_tuple('SUBINT', 'AUX_DM', self.subintinfo['AUX_DM'][-1][:nsubint])
+        self.replace_FITS_tuple('SUBINT', 'AUX_RM', self.subintinfo['AUX_RM'][-1][:nsubint])
 
     def replace_FITS_tuple(self, hdr, name, new_value):
         if hdr == "HISTORY":
@@ -170,7 +285,7 @@ class psrfits(pp.Archive):
         new_value : float, str
             The new value of the parameter.
         """
-        special_fields = ['TDIM17','TDIM20']
+        # special_fields = ['TDIM17','TDIM20']
 
         if hdr == "PRIMARY":
             self.header[name] = new_value
@@ -182,6 +297,9 @@ class psrfits(pp.Archive):
             self.paramheader[name] = new_value
         elif hdr == "SUBINT":
             self.subintheader[name] = new_value
+        else:
+            msg = f'{hdr} is not currently supported'
+            raise ValueError(msg)
 
     def write_psrfits(self, save_path):
 
@@ -189,6 +307,7 @@ class psrfits(pp.Archive):
             self.save(save_path)
         else:
             raise ValueError('Cannot save a file without data.')
+
     def save(self, filename):
         """Save the file to a new FITS file"""
 
@@ -237,24 +356,31 @@ class psrfits(pp.Archive):
             for table in self.tables:
                 hdulist.append(table)
 
+        nsubint, npol, nchan, nbin = self.shape(squeeze=False)
+
+        # here fix this
         cols = []
         for name in self.subintinfolist:
+
             fmt, unit, array = self.subintinfo[name]
+            if (array.shape[0] != nsubint or array.shape[0] != 1):
+                msg = f'{name} has shape {array.shape} but file has {nsubint} subint.\n'
+                msg += 'Will not save accurately shaped arrays.'
+                raise ValueError(msg)
+
+
             col = pyfits.Column(name=name, format=fmt, unit=unit, array=array)
             cols.append(col)
             # finish writing out SUBINT!
-        # print(self.freq.shape)
-        # print(self.weights.shape)
+
         cols.append(pyfits.Column(name='DAT_FREQ', format='%iE'%np.shape(self.freq)[1], unit='MHz', array=self.freq)) #correct size? check units?
         cols.append(pyfits.Column(name='DAT_WTS', format='%iE'%np.shape(self.weights)[1], array=self.weights)) #call getWeights()
-
-        nsubint, npol, nchan, nbin = self.shape(squeeze=False)
 
         DAT_OFFS = np.zeros((nsubint, npol*nchan), dtype=np.float32)
         DAT_SCL = np.zeros((nsubint, npol*nchan), dtype=np.float32)
         DATA = self.getData(squeeze=False, weight=False)
         saveDATA = np.zeros(self.shape(squeeze=False), dtype=np.int16)
-        # print(saveDATA.shape)
+
         # Following Base/Formats/PSRFITS/unload_DigitiserCounts.C
 
         for i in xrange(nsubint):
@@ -411,22 +537,8 @@ class psrfits(pp.Archive):
             self.replace_FITS_tuple('HISTORY', 'NBIN', nbin)
             self.replace_FITS_tuple('HISTORY', 'NBIN_PRD', nbin)
 
-            self.replace_FITS_tuple('SUBINT', 'INDEXVAL', self.subintinfo['INDEXVAL'][-1][:nsubint])
             self.replace_FITS_tuple('SUBINT', 'PERIOD', self.subintinfo['PERIOD'][-1][:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'TSUBINT', self.subintinfo['TSUBINT'][-1][:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'OFFS_SUB', self.subintinfo['OFFS_SUB'][-1][:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'LST_SUB', self.subintinfo['LST_SUB'][-1][0:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'RA_SUB', self.subintinfo['RA_SUB'][-1][:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'DEC_SUB', self.subintinfo['DEC_SUB'][-1][:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'GLON_SUB', self.subintinfo['GLON_SUB'][-1][:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'GLAT_SUB', self.subintinfo['GLAT_SUB'][-1][:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'FD_ANG', self.subintinfo['FD_ANG'][-1][:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'POS_ANG', self.subintinfo['POS_ANG'][-1][:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'PAR_ANG', self.subintinfo['PAR_ANG'][-1][:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'TEL_AZ', self.subintinfo['TEL_AZ'][-1][:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'TEL_ZEN', self.subintinfo['TEL_ZEN'][-1][:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'AUX_DM', self.subintinfo['AUX_DM'][-1][:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'AUX_RM', self.subintinfo['AUX_RM'][-1][:nsubint])
+            self.replace_subint_info(nsubint)
 
             #Calculate Number of Bytes in each row's DATA array
             tform17 = nbin*nchan*npol*nsblk
@@ -477,29 +589,15 @@ class psrfits(pp.Archive):
             self.replace_FITS_Record('SUBINT','TFORM17',str(nchan)+'E')
             self.replace_FITS_Record('SUBINT','TFORM18',str(nchan*npol)+'E')
             self.replace_FITS_Record('SUBINT','TFORM19',str(nchan*npol)+'E')
+
             self.replace_FITS_tuple('HISTORY', 'NCHAN', nchan)
             self.replace_FITS_tuple('HISTORY', 'NSUB', nsubint)
             self.replace_FITS_tuple('HISTORY', 'NPOL', npol)
             self.replace_FITS_tuple('HISTORY', 'NBIN', nbin)
             self.replace_FITS_tuple('HISTORY', 'NBIN_PRD', nbin) # MAY NEED TO CHANGE
+            self.replace_subint_info(nsubint)
 
 
-            self.replace_FITS_tuple('SUBINT', 'INDEXVAL', self.subintinfo['INDEXVAL'][-1][:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'TSUBINT', self.subintinfo['TSUBINT'][-1][:nsubint])
-
-            self.replace_FITS_tuple('SUBINT', 'OFFS_SUB', self.subintinfo['OFFS_SUB'][-1][:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'LST_SUB', self.subintinfo['LST_SUB'][-1][0:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'RA_SUB', self.subintinfo['RA_SUB'][-1][:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'DEC_SUB', self.subintinfo['DEC_SUB'][-1][:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'GLON_SUB', self.subintinfo['GLON_SUB'][-1][:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'GLAT_SUB', self.subintinfo['GLAT_SUB'][-1][:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'FD_ANG', self.subintinfo['FD_ANG'][-1][:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'POS_ANG', self.subintinfo['POS_ANG'][-1][:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'PAR_ANG', self.subintinfo['PAR_ANG'][-1][:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'TEL_AZ', self.subintinfo['TEL_AZ'][-1][:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'TEL_ZEN', self.subintinfo['TEL_ZEN'][-1][:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'AUX_DM', self.subintinfo['AUX_DM'][-1][:nsubint])
-            self.replace_FITS_tuple('SUBINT', 'AUX_RM', self.subintinfo['AUX_RM'][-1][:nsubint])
             #Calculate Number of Bytes in each row's DATA array
             tform20 = nbin*nchan*npol
             self.replace_FITS_Record('SUBINT','TFORM20',str(tform20)+'I')
