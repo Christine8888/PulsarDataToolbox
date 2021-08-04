@@ -524,7 +524,7 @@ class psrfits(pp.Archive):
         if obs_mode is None: obs_mode = self.obs_mode
 
         if obs_mode.upper() == 'SEARCH':
-            self.subint_idx = self.draft_hdr_keys.index('SUBINT')
+
             if nbin != 1:
                 err_msg = 'NBIN (set to {0}) parameter not set '.format(nbin)
                 err_msg += 'to correct value for SEARCH mode.'
