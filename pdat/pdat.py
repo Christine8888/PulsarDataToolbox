@@ -467,8 +467,8 @@ class psrfits(pp.Archive):
         #TODO Add in hdf5 type file format for large arrays?
         return np.empty(nrows, dtype=HDU_dtype_list)
 
-    def set_subint_dims(self, nbin=self.nbin, nchan=self.nchan, npol=self.npol, nsblk=self.nsblk,
-                        nsubint=self.nsubint, obs_mode=None, data_dtype='|u1'):
+    def set_subint_dims(self, nbin=None, nchan=None, npol=None, nsblk=None,
+                        nsubint=None, obs_mode=None, data_dtype='|u1'):
         """
         Method to set the appropriate parameters for the SUBINT BinTable of
             a PSRFITS file of the given dimensions.
@@ -510,11 +510,16 @@ class psrfits(pp.Archive):
         #Make a dtype list with defined dimensions and data type
         self._bytes_per_datum = np.dtype(data_dtype).itemsize
 
-        self.nsubint = nsubint
-        self.nbin = nbin
-        self.nchan = nchan
-        self.npol = npol
-        self.nsblk = nsblk
+        if nsubint is not None:
+            self.nsubint = nsubint
+        if nbin is not None:
+            self.nbin = nbin
+        if nchan is not None:
+            self.nchan = nchan
+        if npol is not None:
+            self.npol = npol
+        if nsblk is not None:
+            self.nsblk = nsblk
 
         if obs_mode is None: obs_mode = self.obs_mode
 
