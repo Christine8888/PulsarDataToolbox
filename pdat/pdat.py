@@ -99,10 +99,19 @@ class psrfits(pp.Archive):
         self.subint_dtype = None
         self.n_hdrs = len(self.keys)
         self.written = False
-        self.nsubint = self.history.getLatest("NSUB")
-        self.npol = self.history.getLatest("NPOL")
-        self.nchan = self.history.getLatest("NCHAN")
-        self.nbin = self.history.getLatest("NBIN")
+
+        if self.obs_mode == "PSR" or self.obs_mode == "CAL":
+            self.nsubint = self.history.getLatest("NSUB")
+            self.npol = self.history.getLatest("NPOL")
+            self.nchan = self.history.getLatest("NCHAN")
+            self.nbin = self.history.getLatest("NBIN")
+            self.nsblk = 1
+        elif self.obs_mode == "SEARCH":
+            self.nsubint = self.subintheader["NAXIS2"]
+            self.npol = self.subintheader["NPOL"]
+            self.nchan = self.subintheader["NCHAN"]
+            self.nbin = 1
+            self.nsblk = self.subintheader["NSBLK"]
 
     def __getitem__(self, arg, header=True):
         if arg == "PRIMARY":
@@ -457,9 +466,8 @@ class psrfits(pp.Archive):
         #TODO Add in hdf5 type file format for large arrays?
         return np.empty(nrows, dtype=HDU_dtype_list)
 
-
-    def set_subint_dims(self, nbin=1, nchan=2048, npol=4, nsblk=4096,
-                        nsubint=4, obs_mode=None, data_dtype='|u1'):
+    def set_subint_dims(self, nbin=self.nbin, nchan=self.nchan, npol=self.npol, nsblk=self.nsblk,
+                        nsubint=self.nsubint, obs_mode=None, data_dtype='|u1'):
         """
         Method to set the appropriate parameters for the SUBINT BinTable of
             a PSRFITS file of the given dimensions.
