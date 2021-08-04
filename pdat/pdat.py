@@ -553,7 +553,7 @@ class psrfits(pp.Archive):
             self.replace_FITS_Record('SUBINT','TFORM15',str(nchan*npol)+'E')
             self.replace_FITS_Record('SUBINT','TFORM16',str(nchan*npol)+'E')
 
-            self.replace_FITS_tuple('SUBINT', 'PERIOD', self.subintinfo['PERIOD'][-1][:nsubint])
+            # self.replace_FITS_tuple('SUBINT', 'PERIOD', self.subintinfo['PERIOD'][-1][:nsubint])
             self.replace_subint_info(nsubint)
 
             #Calculate Number of Bytes in each row's DATA array
