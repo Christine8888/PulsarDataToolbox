@@ -521,6 +521,13 @@ class psrfits(pp.Archive):
         if nsblk is not None:
             self.nsblk = nsblk
 
+
+        nsubint = self.nsubint
+        nbin = self.nbin
+        nchan = self.nchan
+        nsblk = self.nsblk
+        npol = self.npol
+
         if obs_mode is None: obs_mode = self.obs_mode
 
         if obs_mode.upper() == 'SEARCH':
