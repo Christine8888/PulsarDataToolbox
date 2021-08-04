@@ -101,6 +101,7 @@ class psrfits(pp.Archive):
         self.written = False
 
         if self.obs_mode == "PSR" or self.obs_mode == "CAL":
+            print('here')
             self.nsubint = self.history.getLatest("NSUB")
             self.npol = self.history.getLatest("NPOL")
             self.nchan = self.history.getLatest("NCHAN")
