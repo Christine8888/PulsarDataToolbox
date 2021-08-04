@@ -366,7 +366,10 @@ class psrfits(pp.Archive):
             for table in self.tables:
                 hdulist.append(table)
 
-        nsubint, npol, nchan, nbin = self.shape(squeeze=False)
+        if self.obs_mode == "PSR" or self.obs_mode == "CAL":
+            nsubint, npol, nchan, nbin = self.shape(squeeze=False)
+        elif self.obs_mode == "SEARCH":
+            nsubint, nsblk, npol, nchan, nbin = self.shape(squeeze=False)
 
         # here fix this
         cols = []
