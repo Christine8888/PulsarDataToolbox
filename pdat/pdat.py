@@ -552,11 +552,6 @@ class psrfits(pp.Archive):
             self.replace_FITS_Record('SUBINT','TFORM14',str(nchan)+'E')
             self.replace_FITS_Record('SUBINT','TFORM15',str(nchan*npol)+'E')
             self.replace_FITS_Record('SUBINT','TFORM16',str(nchan*npol)+'E')
-            self.replace_FITS_tuple('HISTORY', 'NCHAN', nchan)
-            self.replace_FITS_tuple('HISTORY', 'NSUB', nsubint)
-            self.replace_FITS_tuple('HISTORY', 'NPOL', npol)
-            self.replace_FITS_tuple('HISTORY', 'NBIN', nbin)
-            self.replace_FITS_tuple('HISTORY', 'NBIN_PRD', nbin)
 
             self.replace_FITS_tuple('SUBINT', 'PERIOD', self.subintinfo['PERIOD'][-1][:nsubint])
             self.replace_subint_info(nsubint)
