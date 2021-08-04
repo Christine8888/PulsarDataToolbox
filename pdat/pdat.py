@@ -246,7 +246,11 @@ class psrfits(pp.Archive):
 
 
     def replace_subint_info(self, nsubint):
-        self.replace_FITS_tuple('SUBINT', 'INDEXVAL', self.subintinfo['INDEXVAL'][-1][:nsubint])
+        if self.obs_mode == "PSR" or self.obs_mode == "CAL":
+            self.replace_FITS_tuple('SUBINT', 'INDEXVAL', self.subintinfo['INDEXVAL'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'AUX_DM', self.subintinfo['AUX_DM'][-1][:nsubint])
+            self.replace_FITS_tuple('SUBINT', 'AUX_RM', self.subintinfo['AUX_RM'][-1][:nsubint])
+
         self.replace_FITS_tuple('SUBINT', 'TSUBINT', self.subintinfo['TSUBINT'][-1][:nsubint])
         self.replace_FITS_tuple('SUBINT', 'OFFS_SUB', self.subintinfo['OFFS_SUB'][-1][:nsubint])
         self.replace_FITS_tuple('SUBINT', 'LST_SUB', self.subintinfo['LST_SUB'][-1][:nsubint])
@@ -259,8 +263,7 @@ class psrfits(pp.Archive):
         self.replace_FITS_tuple('SUBINT', 'PAR_ANG', self.subintinfo['PAR_ANG'][-1][:nsubint])
         self.replace_FITS_tuple('SUBINT', 'TEL_AZ', self.subintinfo['TEL_AZ'][-1][:nsubint])
         self.replace_FITS_tuple('SUBINT', 'TEL_ZEN', self.subintinfo['TEL_ZEN'][-1][:nsubint])
-        self.replace_FITS_tuple('SUBINT', 'AUX_DM', self.subintinfo['AUX_DM'][-1][:nsubint])
-        self.replace_FITS_tuple('SUBINT', 'AUX_RM', self.subintinfo['AUX_RM'][-1][:nsubint])
+
 
     def replace_FITS_tuple(self, hdr, name, new_value):
         if hdr == "HISTORY":
