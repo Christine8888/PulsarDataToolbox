@@ -6,6 +6,7 @@
 from __future__ import (absolute_import, division,
                         print_function, unicode_literals)
 import numpy as np
+import math
 import pypulse as pp
 import astropy.io.fits as pyfits
 from astropy.io.fits import hdu
@@ -101,7 +102,7 @@ class psrfits(pp.Archive):
         self.written = False
 
         if self.obs_mode == "PSR" or self.obs_mode == "CAL":
-            print('here')
+            # print('here')
             self.nsubint = self.history.getLatest("NSUB")
             self.npol = self.history.getLatest("NPOL")
             self.nchan = self.history.getLatest("NCHAN")
@@ -142,18 +143,25 @@ class psrfits(pp.Archive):
             msg = f'{arg} is not currently supported'
             raise ValueError(msg)
 
-    def initialize_data(self, obs_mode = 'PSR'):
-
+    def initialize_data(self, obs_mode = 'PSR', data=None):
         self.written = True
-        if (obs_mode == 'PSR' or obs_mode == 'CAL'):
-            self._data = np.zeros((self.nsubint, self.npol, self.nchan, self.nbin))
-
-        elif obs_mode == 'SEARCH':
-            self._data = np.zeros((self.nsubint, self.nsblk, self.npol, self.nchan, self.nbin))
 
         self.freq = np.zeros((self.nsubint, self.nchan))
         self.weights = np.ones((self.nsubint, self.nchan))
-        self.weighted_data = self._data * self.weights[:, None, :, None]/np.nansum(self.weights)
+
+        if (obs_mode == 'PSR' or obs_mode == 'CAL'):
+            if data is not None:
+                self._data = data
+            else:
+                self._data = np.zeros((self.nsubint, self.npol, self.nchan, self.nbin))
+            self.weighted_data = self._data * self.weights[:, None, :, None]/np.nansum(self.weights)
+
+        elif obs_mode == 'SEARCH':
+            if data is not None:
+                self._data = data
+            else:
+                self._data = np.zeros((self.nsubint, self.nsblk, self.npol, self.nchan, self.nbin))
+            self.weighted_data = self._data * self.weights[:, None, None, :, None]/np.nansum(self.weights)
 
     def set_draft_header(self, ext_name, hdr_dict):
         """
@@ -174,10 +182,9 @@ class psrfits(pp.Archive):
         for key in hdr_dict.keys():
             self.replace_FITS_Record(ext_name,key,hdr_dict[key])
 
-    def append_from_file(self,path,table='all'):
+    def replace_from_file(self,path,table='all'):
         """
-        Method to append more subintegrations to a PSRFITS file from other
-        PSRFITS files.
+        Method to replace single tables from other PSRFITS files.
         Note: Tables are appended directly to the original file. Make a copy
             before copying if you are unsure about appending. The array must
             match the columns (in the numpy.recarray sense) of the existing
@@ -379,7 +386,7 @@ class psrfits(pp.Archive):
         for name in self.subintinfolist:
 
             fmt, unit, array = self.subintinfo[name]
-            if (array.shape[0] != nsubint or array.shape[0] != 1):
+            if (array.shape[0] != nsubint and array.shape[0] != 1):
                 msg = f'{name} has shape {array.shape} but file has {nsubint} subint.\n'
                 msg += 'Will not save accurately shaped arrays.'
                 raise ValueError(msg)
@@ -398,7 +405,7 @@ class psrfits(pp.Archive):
         saveDATA = np.zeros(self.shape(squeeze=False), dtype=np.int16)
 
         # Following Base/Formats/PSRFITS/unload_DigitiserCounts.C
-
+        # TO DO: work for Search mode
         for i in xrange(nsubint):
             for j in xrange(npol):
                 jnchan = j*nchan
@@ -414,13 +421,10 @@ class psrfits(pp.Archive):
 
                     saveDATA[i, j, k, :] = np.floor((DATA[i, j, k, :] - DAT_OFFS[i, jnchan+k])/DAT_SCL[i, jnchan+k] + 0.5) #why +0.5?
 
-        # print(DAT_OFFS.shape)
-        # print(DAT_SCL.shape)
-        # print(DATA.shape)
-        # print(self.nsubint, nsubint)
+
         offs_col = pyfits.Column(name='DAT_OFFS', format='%iE'%np.size(DAT_OFFS[0]), array=DAT_OFFS)
         cols.append(offs_col)
-        # print(offs_col.array.shape)
+
         scl_col = pyfits.Column(name='DAT_SCL', format='%iE'%np.size(DAT_SCL[0]), array=DAT_SCL)
         cols.append(scl_col)
         # print(scl_col.array.shape)
@@ -465,7 +469,7 @@ class psrfits(pp.Archive):
 
         g.collect()
 
-    def make_HDU_rec_array(self, nrows, HDU_dtype_list):
+    def make_HDU_rec_array(self, nrows, HDU_dtype_list, no_pad = True):
         """
         Makes a rec array with the set number of rows and data structure
         dictated by the dtype list.
@@ -473,8 +477,73 @@ class psrfits(pp.Archive):
         #TODO Add in hdf5 type file format for large arrays?
         return np.empty(nrows, dtype=HDU_dtype_list)
 
+    def set_data_from_array(self, data, option="keep_shape"):
+        """
+        Takes in data of the form frequency vs. time produced by PSS
+        options: "keep_shape", "pad", "no_pad"
+        """
+        self.npol = 1
+        if self.verbose:
+            print("Making {} subints out of data".format(self.nsubint))
+
+        if data.shape[0] != self.nchan:
+            if self.verbose:
+                print("Setting NCHAN to {}".format(data.shape[0]))
+            self.nchan = data.shape[0]
+
+        if option=="keep_shape":
+
+            if data.shape[1] < self.nbin * self.nsubint:
+                missing = self.nbin*self.nsubint - data.shape[1]
+                data = np.pad(data, ((0,0), (0, missing)))
+
+            elif data.shape[1] > self.nbin*self.nsubint:
+                data = data[:, :int(self.nbin*self.nsubint)]
+
+        elif option=="pad":
+
+            if data.shape[1] < self.nbin * self.nsubint:
+                missing = self.nbin*self.nsubint - data.shape[1]
+                data = np.pad(data, ((0,0), (0, missing)))
+
+            elif data.shape[1] > self.nbin*self.nsubint:
+                extra = data.shape[1] - self.nbin*self.nsubint
+                self.nsubint += math.floor(float(extra)/self.nbin)
+                extra = extra % self.nbin
+                # print(extra)
+                data = np.pad(data, ((0,0), (0,extra)))
+                # print(data.shape)
+
+        elif option=="nopad":
+
+            if data.shape[1] < self.nbin * self.nsubint:
+                missing = self.nbin*self.nsubint - data.shape[1]
+
+                self.nsubint -= math.ceil(float(missing)/self.nbin)
+
+                to_remove = math.ceil(float(missing)/self.nbin) * self.nbin
+                data = data[:, :int(self.nbin*self.nsubint)]
+
+            elif data.shape[1] > self.nbin*self.nsubint:
+                data = data[:, :int(self.nbin*self.nsubint)]
+
+        else:
+            err_msg = "{} is not a valid reshaping option.".format(option)
+            raise ValueError(err_msg)
+
+
+        data = np.reshape(data, (self.nchan, self.nsubint, self.nbin))
+        data = np.reshape(data, (self.nsubint,  self.npol, self.nchan, self.nbin))
+        self.set_subint_dims(self.nbin, self.nchan, self.npol, self.nsblk, self.nsubint, self.obs_mode, data)
+
+        if self.verbose:
+            print("NSUBINT is now {}".format(self.nsubint))
+        # set data
+        # AND make sure everything else i.e. weighted data works
+
+
     def set_subint_dims(self, nbin=None, nchan=None, npol=None, nsblk=None,
-                        nsubint=None, obs_mode=None, data_dtype='|u1'):
+                        nsubint=None, obs_mode=None, data=None, data_dtype='|u1'):
         """
         Method to set the appropriate parameters for the SUBINT BinTable of
             a PSRFITS file of the given dimensions.
@@ -578,7 +647,7 @@ class psrfits(pp.Archive):
             tdim17 += str(npol)+', '+str(nsblk)+')'
             self.replace_FITS_Record('SUBINT','TDIM17', tdim17)
 
-            self.initialize_data(obs_mode = obs_mode)
+            self.initialize_data(obs_mode = obs_mode, data=data)
             # FIGURE OUT DATA FORMATS
 
             self.single_subint_floats=['TSUBINT','OFFS_SUB',
@@ -606,11 +675,6 @@ class psrfits(pp.Archive):
             self.replace_FITS_Record('PRIMARY','OBSNCHAN',nchan)
             self.replace_FITS_Record('SUBINT','NPOL',npol)
             self.replace_FITS_Record('SUBINT','NSBLK',nsblk)
-            self.replace_FITS_Record('SUBINT','NAXIS2',nsubint)
-            self.replace_FITS_Record('SUBINT','TFORM16',str(nchan)+'D')
-            self.replace_FITS_Record('SUBINT','TFORM17',str(nchan)+'E')
-            self.replace_FITS_Record('SUBINT','TFORM18',str(nchan*npol)+'E')
-            self.replace_FITS_Record('SUBINT','TFORM19',str(nchan*npol)+'E')
 
             self.replace_FITS_tuple('HISTORY', 'NCHAN', nchan)
             self.replace_FITS_tuple('HISTORY', 'NSUB', nsubint)
@@ -619,24 +683,7 @@ class psrfits(pp.Archive):
             self.replace_FITS_tuple('HISTORY', 'NBIN_PRD', nbin) # MAY NEED TO CHANGE
             self.replace_subint_info(nsubint)
 
-
-            #Calculate Number of Bytes in each row's DATA array
-            tform20 = nbin*nchan*npol
-            self.replace_FITS_Record('SUBINT','TFORM20',str(tform20)+'I')
-            bytes_in_lone_floats = 10*8 + 5*4
-
-
-
-            #This is the number of bytes in TSUBINT, OFFS_SUB, LST_SUB, etc.
-            naxis1 = tform20*self._bytes_per_datum + nchan*8 + nchan*4
-            naxis1 += 2*nchan*npol*4 + bytes_in_lone_floats
-            self.replace_FITS_Record('SUBINT','NAXIS1', naxis1)
-
-            # Set the TDIM20 string-tuple
-            tdim20 = '('+str(nbin)+', '+str(nchan)+', ' + str(npol)+')'
-            self.replace_FITS_Record('SUBINT','TDIM20', tdim20)
-            self.replace_FITS_Record('SUBINT','TDIM21', tdim20)
-            self.initialize_data(obs_mode = obs_mode)
+            self.initialize_data(obs_mode = obs_mode, data=data)
 
             self.single_subint_floats=['TSUBINT','OFFS_SUB',
                                        'LST_SUB','RA_SUB',
@@ -649,13 +696,3 @@ class psrfits(pp.Archive):
 def list_arg(list_name, string):
     """Returns the index of a particular string in a list of strings."""
     return [x for x, y in enumerate(list_name) if y == string][0]
-
-def convert2asciii(dictionary):
-    """
-    Changes all keys (i.e. assumes they are strings) to ASCII and
-    values that are strings to ASCII. Specific to dictionaries.
-    """
-    return dict([(key.encode('ascii','ignore'),value.encode('ascii','ignore'))
-                 if type(value) in [str,bytes] else
-                 (key.encode('ascii','ignore'),value)
-                 for key, value in dictionary.items()])
