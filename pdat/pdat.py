@@ -154,6 +154,7 @@ class psrfits(pp.Archive):
             bw = self.header['OBSBW']
 
             new_freq = np.linspace(center_freq - (bw/2), center_freq + (bw/2), self.nchan, endpoint=False)
+            new_freq = np.repeat(new_freq, self.nsubint, axis=0).reshape(self.nchan, self.nsubint).T
             chan_bw = new_freq[1] - new_freq[0]
 
             self.replace_FITS_tuple('HISTORY', 'CHAN_BW', chan_bw)
