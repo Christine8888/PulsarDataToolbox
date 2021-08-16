@@ -143,10 +143,30 @@ class psrfits(pp.Archive):
             msg = f'{arg} is not currently supported'
             raise ValueError(msg)
 
-    def initialize_data(self, obs_mode = 'PSR', data=None):
-        self.written = True
 
-        self.freq = np.zeros((self.nsubint, self.nchan))
+    def set_freqs(self, freqs=None):
+        if freqs is not None:
+            # ALSO have to change PRIMARY, HISTORY again
+            if freqs.shape[0] != self.nchan:
+                raise ValueError("Frequency array with shape {} does not match NCHAN={}".format(freqs.shape[0], self.nchan))
+        else:
+            center_freq = self.header['OBSFREQ']
+            bw = self.header['OBSBW']
+
+            new_freq = np.linspace(center_freq - (bw/2), center_freq + (bw/2), self.nchan, endpoint=False)
+            chan_bw = new_freq[1] - new_freq[0]
+
+            self.replace_FITS_tuple('HISTORY', 'CHAN_BW', chan_bw)
+            self.freq = new_freq
+
+
+        # PRIMARY: OBSBW, OBSFREQ, OBSNCHAN
+        # HISTORY: NCHAN, CNAH_BW, CTR_FREQ
+
+    def initialize_data(self, obs_mode = 'PSR', data=None, freqs=None):
+        self.written = True
+        #self.freq = np.zeros((self.nsubint, self.nchan))
+        self.set_freqs(freqs=freqs)
         self.weights = np.ones((self.nsubint, self.nchan))
 
         if (obs_mode == 'PSR' or obs_mode == 'CAL'):
@@ -554,7 +574,7 @@ class psrfits(pp.Archive):
 
 
     def set_subint_dims(self, nbin=None, nchan=None, npol=None, nsblk=None,
-                        nsubint=None, obs_mode=None, data=None, data_dtype='|u1'):
+                        nsubint=None, obs_mode=None, data=None, freqs=None, data_dtype='|u1'):
         """
         Method to set the appropriate parameters for the SUBINT BinTable of
             a PSRFITS file of the given dimensions.
@@ -607,6 +627,13 @@ class psrfits(pp.Archive):
         if nsblk is not None:
             self.nsblk = nsblk
 
+        if self.verbose:
+            msg = "Setting NSUBINT to {}\n".format(self.nsubint)
+            msg += "Setting NPOL to {}\n".format(self.npol)
+            msg += "Setting NCHAN to {}\n".format(self.nchan)
+            msg += "Setting NSBLK to {}\n".format(self.nsblk)
+            msg += "Setting NBIN to {}\n".format(self.nbin)
+            print(msg)
 
         nsubint = self.nsubint
         nbin = self.nbin
@@ -658,7 +685,7 @@ class psrfits(pp.Archive):
             tdim17 += str(npol)+', '+str(nsblk)+')'
             self.replace_FITS_Record('SUBINT','TDIM17', tdim17)
 
-            self.initialize_data(obs_mode = obs_mode, data=data)
+            self.initialize_data(obs_mode = obs_mode, data=data, freqs=freqs)
             # FIGURE OUT DATA FORMATS
 
             self.single_subint_floats=['TSUBINT','OFFS_SUB',
@@ -694,7 +721,7 @@ class psrfits(pp.Archive):
             self.replace_FITS_tuple('HISTORY', 'NBIN_PRD', nbin) # MAY NEED TO CHANGE
             self.replace_subint_info(nsubint)
 
-            self.initialize_data(obs_mode = obs_mode, data=data)
+            self.initialize_data(obs_mode = obs_mode, data=data, freqs=freqs)
 
             self.single_subint_floats=['TSUBINT','OFFS_SUB',
                                        'LST_SUB','RA_SUB',
