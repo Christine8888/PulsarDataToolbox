@@ -484,13 +484,14 @@ class psrfits(pp.Archive):
         """
         self.npol = 1
         if self.verbose:
-            print("Making {} subints with {} bins out of data".format(self.nsubint, self.nbins))
+            print("Making {} subints with {} bins out of data".format(self.nsubint, self.nbin))
 
 
 
         if option == "strict":
             if data.shape[1] < self.nbin * self.nsubint or data.shape[1] > self.nbin*self.nsubint:
-                err_msg = "Data does not match NSUBINT={} and NBIN={}.".format(self.nsubint, self.nbin)
+                err_msg = "Data does not match NSUBINT={} and NBIN={}.\n".format(self.nsubint, self.nbin)
+                err_msg += "Expected data with shape ({}, {}), got data wth shape ({}, {})".format(self.nchan, self.nbin*self.nsubint, data.shape[0], data.shape[1])
                 raise ValueError(err_msg)
 
             elif data.shape[0] != self.nchan:
