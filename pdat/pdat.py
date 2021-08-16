@@ -477,21 +477,27 @@ class psrfits(pp.Archive):
         #TODO Add in hdf5 type file format for large arrays?
         return np.empty(nrows, dtype=HDU_dtype_list)
 
-    def set_data_from_array(self, data, option="keep_shape"):
+    def set_data_from_array(self, data, option="strict"):
         """
         Takes in data of the form frequency vs. time produced by PSS
         options: "keep_shape", "pad", "no_pad"
         """
         self.npol = 1
         if self.verbose:
-            print("Making {} subints out of data".format(self.nsubint))
+            print("Making {} subints with {} bins out of data".format(self.nsubint, self.nbins))
 
-        if data.shape[0] != self.nchan:
-            if self.verbose:
-                print("Setting NCHAN to {}".format(data.shape[0]))
-            self.nchan = data.shape[0]
 
-        if option=="keep_shape":
+
+        if option == "strict":
+            if data.shape[1] < self.nbin * self.nsubint or data.shape[1] > self.nbin*self.nsubint:
+                err_msg = "Data does not match NSUBINT={} and NBIN={}.".format(self.nsubint, self.nbin)
+                raise ValueError(err_msg)
+
+            elif data.shape[0] != self.nchan:
+                err_msg = "Data does not match NCHAN={}.".format(self.nchan)
+                raise ValueError(err_msg)
+
+        elif option=="keep_shape":
 
             if data.shape[1] < self.nbin * self.nsubint:
                 missing = self.nbin*self.nsubint - data.shape[1]
@@ -531,13 +537,17 @@ class psrfits(pp.Archive):
             err_msg = "{} is not a valid reshaping option.".format(option)
             raise ValueError(err_msg)
 
+        if data.shape[0] != self.nchan:
+            if self.verbose:
+                print("Setting NCHAN to {}".format(data.shape[0]))
+            self.nchan = data.shape[0]
 
         data = np.reshape(data, (self.nchan, self.nsubint, self.nbin))
         data = np.reshape(data, (self.nsubint,  self.npol, self.nchan, self.nbin))
         self.set_subint_dims(self.nbin, self.nchan, self.npol, self.nsblk, self.nsubint, self.obs_mode, data)
 
         if self.verbose:
-            print("NSUBINT is now {}".format(self.nsubint))
+            print("NSUBINT is {}".format(self.nsubint))
         # set data
         # AND make sure everything else i.e. weighted data works
 
