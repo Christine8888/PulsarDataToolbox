@@ -150,7 +150,8 @@ class psrfits(pp.Archive):
             # ALSO have to change PRIMARY, HISTORY again
             if freqs.shape[0] != self.nchan:
                 raise ValueError("Frequency array with shape {} does not match NCHAN={}".format(freqs.shape[0], self.nchan))
-            self.freq = freqs
+            new_freq = np.repeat(freqs, self.nsubint, axis=0).reshape(self.nchan, self.nsubint).T
+            self.freq = new_freq
         else:
             center_freq = self.header['OBSFREQ']
             bw = self.header['OBSBW']
