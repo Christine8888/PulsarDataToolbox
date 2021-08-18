@@ -84,17 +84,18 @@ class psrfits(pp.Archive):
             super().__init__(file_path, onlyheader=True, verbose = verbose, baseline_removal=False, center_pulse=False, weight=False, wcfreq=False)
 
         elif file_path is None and template == "PSR":
-            file_path = "pdat/templates/search_template.fits" # replace with appropriate template
+            file_path = "/mnt/c/users/christine/dwg_tutorials/PulsarDataToolbox/pdat/templates/psr_template.fits" # replace with appropriate template
             if verbose:
                 print('Loading template PSRFITS file from path:\n'
                       '    \'{0}\'.'.format(file_path))
 
             super().__init__(file_path, onlyheader=True, verbose = verbose, baseline_removal=False, center_pulse=False, weight=False, wcfreq=False)
+
         else:
             raise ValueError('Must provide filepath or choose a template')
 
         if self.obs_mode is None:
-            OBS = self.header['OBS_MODE'].strip() # [fitsio] get OBS_MODE from template if not yet set
+            OBS = self.header['OBS_MODE'].strip() # get OBS_MODE from template if not yet set
             self.obs_mode = OBS
 
         self.subint_dtype = None
@@ -149,11 +150,13 @@ class psrfits(pp.Archive):
             # ALSO have to change PRIMARY, HISTORY again
             if freqs.shape[0] != self.nchan:
                 raise ValueError("Frequency array with shape {} does not match NCHAN={}".format(freqs.shape[0], self.nchan))
+            self.freq = freqs
         else:
             center_freq = self.header['OBSFREQ']
             bw = self.header['OBSBW']
 
             new_freq = np.linspace(center_freq - (bw/2), center_freq + (bw/2), self.nchan, endpoint=False)
+
             chan_bw = new_freq[1] - new_freq[0]
             new_freq = np.repeat(new_freq, self.nsubint, axis=0).reshape(self.nchan, self.nsubint).T
 
@@ -274,6 +277,7 @@ class psrfits(pp.Archive):
 
 
     def replace_subint_info(self, nsubint):
+
         if self.obs_mode == "PSR" or self.obs_mode == "CAL":
             self.replace_FITS_tuple('SUBINT', 'INDEXVAL', self.subintinfo['INDEXVAL'][-1][:nsubint])
             self.replace_FITS_tuple('SUBINT', 'AUX_DM', self.subintinfo['AUX_DM'][-1][:nsubint])
@@ -292,6 +296,7 @@ class psrfits(pp.Archive):
         self.replace_FITS_tuple('SUBINT', 'TEL_AZ', self.subintinfo['TEL_AZ'][-1][:nsubint])
         self.replace_FITS_tuple('SUBINT', 'TEL_ZEN', self.subintinfo['TEL_ZEN'][-1][:nsubint])
 
+        subintinfo_len = self.subintinfo['INDEXVAL'][-1].shape[0]
 
     def replace_FITS_tuple(self, hdr, name, new_value):
         if hdr == "HISTORY":
