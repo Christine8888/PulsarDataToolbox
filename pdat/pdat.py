@@ -504,7 +504,7 @@ class psrfits(pp.Archive):
         #TODO Add in hdf5 type file format for large arrays?
         return np.empty(nrows, dtype=HDU_dtype_list)
 
-    def set_data_from_array(self, data, option="strict"):
+    def set_data_from_array(self, data, freqs=None, option="strict"):
         """
         Takes in data of the form frequency vs. time produced by PSS
         options: "keep_shape", "pad", "no_pad"
@@ -572,7 +572,7 @@ class psrfits(pp.Archive):
 
         data = np.reshape(data, (self.nchan, self.nsubint, self.nbin))
         data = np.reshape(data, (self.nsubint,  self.npol, self.nchan, self.nbin))
-        self.set_subint_dims(self.nbin, self.nchan, self.npol, self.nsblk, self.nsubint, self.obs_mode, data)
+        self.set_subint_dims(self.nbin, self.nchan, self.npol, self.nsblk, self.nsubint, self.obs_mode, data, freqs=freqs)
 
         if self.verbose:
             print("NSUBINT is {}".format(self.nsubint))
